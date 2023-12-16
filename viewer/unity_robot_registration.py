@@ -76,7 +76,7 @@ if __name__ == '__main__':
             print(bbox)
             listening = False
             break
-    ipc.close()
+
 
     # Get RM Depth Long Throw calibration -------------------------------------
     # Calibration data will be downloaded if it's not in the calibration folder
@@ -89,8 +89,6 @@ if __name__ == '__main__':
     volume = o3d.pipelines.integration.ScalableTSDFVolume(voxel_length=voxel_length, sdf_trunc=sdf_trunc, color_type=o3d.pipelines.integration.TSDFVolumeColorType.RGB8)
     intrinsics_depth = o3d.camera.PinholeCameraIntrinsic(hl2ss.Parameters_RM_DEPTH_LONGTHROW.WIDTH, hl2ss.Parameters_RM_DEPTH_LONGTHROW.HEIGHT, calibration_lt.intrinsics[0, 0], calibration_lt.intrinsics[1, 1], calibration_lt.intrinsics[2, 0], calibration_lt.intrinsics[2, 1])
     
-    # vis = o3d.visualization.Visualizer()
-    # vis.create_window()
     first_pcd = True
 
     # Start RM Depth Long Throw stream ----------------------------------------
@@ -131,21 +129,10 @@ if __name__ == '__main__':
         # Compute world to RM Depth Long Throw camera transformation matrix ---
         depth_world_to_camera = hl2ss_3dcv.world_to_reference(data_depth.pose) @ hl2ss_3dcv.rignode_to_camera(calibration_lt.extrinsics)
 
-        # Integrate RGBD and display point cloud ------------------------------
+        # Integrate RGBD  ------------------------------
         volume.integrate(rgbd, intrinsics_depth, depth_world_to_camera.transpose())
-        # pcd_tmp = volume.extract_point_cloud()
+        print("Acquired point cloud")
 
-        # if (first_pcd):
-        #     first_pcd = False
-        #     pcd = pcd_tmp
-        #     # vis.add_geometry(pcd)
-        # else:
-        #     pcd.points = pcd_tmp.points
-        #     pcd.colors = pcd_tmp.colors
-        #     # vis.update_geometry(pcd)
-
-        # # vis.poll_events()
-        # # vis.update_renderer()
 
     # Stop RM Depth Long Throw stream -----------------------------------------
     sink_depth.detach()
@@ -161,10 +148,10 @@ if __name__ == '__main__':
     bounding_box = o3d.geometry.AxisAlignedBoundingBox(min_bound, max_bound)
     cropped_pcd = pcd.crop(bounding_box)
 
-    o3d.visualization.draw_geometries([cropped_pcd], "Cropped Point Cloud")
+    # o3d.visualization.draw_geometries([cropped_pcd], "Cropped Point Cloud")
 
-    o3d.io.write_point_cloud("cropped_hl2.pcd", cropped_pcd)
-
-    print("Saving pointcloud to file: hl2.pcd")
-    o3d.io.write_point_cloud("hl2.pcd", pcd)
+    # o3d.io.write_point_cloud("cropped_hl2.pcd", cropped_pcd)
+    print("Prepare for registartion")
+    ipc.close()
+    
 

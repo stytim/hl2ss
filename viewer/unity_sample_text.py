@@ -13,7 +13,7 @@ import hl2ss_rus
 # Settings --------------------------------------------------------------------
 
 # HoloLens address
-host = '192.168.1.185'
+host = '192.168.0.27'
 
 # Position in world space (x, y, z) in meters
 position = [0, 0, 1]
@@ -66,10 +66,10 @@ print(f'Created text object with id {key}')
 
 stop_event.wait()
 
-command_buffer = hl2ss_rus.command_buffer()
-command_buffer.remove(key) # Destroy text object
-ipc.push(command_buffer)
-results = ipc.pull(command_buffer)
+# command_buffer = hl2ss_rus.command_buffer()
+# command_buffer.remove(key) # Destroy text object
+# ipc.push(command_buffer)
+# results = ipc.pull(command_buffer)
 
 ipc.close()
 
