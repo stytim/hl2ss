@@ -5,90 +5,166 @@
 
 from pynput import keyboard
 
+import multiprocessing as mp
+
 import hl2ss
 import hl2ss_lnm
 import hl2ss_rus
+import hl2ss_3dcv
+import hl2ss_mp
+import open3d as o3d
+import cv2
 
 # Settings --------------------------------------------------------------------
 
 # HoloLens address
 host = '192.168.0.27'
 
-# # Initial position in world space (x, y, z) in meters
-# position = [0, 0, 0]
+# Calibration path (must exist but can be empty)
+calibration_path = '../calibration'
 
-# # Initial rotation in world space (x, y, z, w) as a quaternion
-# rotation = [0, 0, 0, 1]
+# Buffer length in seconds
+buffer_length = 10
 
-# # Initial scale in meters
-# scale = [0.2, 0.2, 0.2]
+# Integration parameters
+voxel_length = 1/100
+sdf_trunc = 0.04
+max_depth = 3.0
 
-# # Initial color
-# rgba = [1, 1, 1, 1]
+def unity_to_open3d_bounds(unity_data):
+    # Extracting position and scale from the Unity data
+    position = unity_data[:3]
+    scale = unity_data[3:]
+    
+    # Convert Unity position to Open3D (adjusting Z-axis sign)
+    position[2] = -position[2]
+    tmp = scale[0]
+    scale[0] = scale[2]
+    scale[2] = tmp
 
-#------------------------------------------------------------------------------
+    # Calculate min and max bounds for Open3D
+    half_scale = scale / 2
+    min_bound = position - half_scale
+    max_bound = position + half_scale
 
-enable = True
-
-def on_press(key):
-    global enable
-    enable = key != keyboard.Key.esc
-    return enable
-
-listener = keyboard.Listener(on_press=on_press)
-listener.start()
-
-ipc = hl2ss_lnm.ipc_umq(host, hl2ss.IPCPort.UNITY_MESSAGE_QUEUE)
-ipc.open()
-
-key = 0
-
-# display_list = hl2ss_rus.command_buffer()
-# display_list.begin_display_list() # Begin command sequence
-# display_list.remove_all() # Remove all objects that were created remotely
-# display_list.create_primitive(hl2ss_rus.PrimitiveType.Cube) # Create a cube, server will return its id
-# display_list.set_target_mode(hl2ss_rus.TargetMode.UseLast) # Set server to use the last created object as target, this avoids waiting for the id of the cube
-# display_list.set_world_transform(key, position, rotation, scale) # Set the world transform of the cube
-# display_list.set_color(key, rgba) # Set the color of the cube
-# display_list.set_active(key, hl2ss_rus.ActiveState.Active) # Make the cube visible
-# display_list.set_target_mode(hl2ss_rus.TargetMode.UseID) # Restore target mode
-# display_list.end_display_list() # End command sequence
-# ipc.push(display_list) # Send commands to server
-# results = ipc.pull(display_list) # Get results from server
-# key = results[2] # Get the cube id, created by the 3rd command in the list
+    return min_bound, max_bound
 
 
-# print(f'Created cube with id {key}')
+if __name__ == '__main__':
+    enable = True
+    def on_press(key):
+        global enable
+        enable = key != keyboard.Key.esc
+        return enable
 
-# z = 0
-# delta = 0.01
+    listener = keyboard.Listener(on_press=on_press)
+    listener.start()
 
-while (enable):
-    ipc.pull_msg()
-    # z += delta
+    ipc = hl2ss_lnm.ipc_umq(host, hl2ss.IPCPort.UNITY_MESSAGE_QUEUE)
+    ipc.open()
 
-    # if (z <= 0):
-    #     z = 0
-    #     delta = -delta
-    # elif (z >= 1):
-    #     z = 1
-    #     delta = -delta
+    key = 0
+    bbox = 0
 
-    # position[2] = z
+    print("Waiting for data...")
+    listening = True
+    # Loop until receive data
+    while(listening):
+        data = ipc.pull_msg()
+        if (data is not None):
+            bbox = data
+            print(bbox)
+            listening = False
+            break
+    ipc.close()
 
-    # display_list = hl2ss_rus.command_buffer()
-    # display_list.begin_display_list()
-    # display_list.set_world_transform(key, position, rotation, scale)
-    # display_list.set_color(key, [z, 0, 1-z, 1-z]) # Semi-transparency is supported
-    # display_list.end_display_list()
-    # ipc.push(display_list)
-    # results = ipc.pull(display_list)
+    # Get RM Depth Long Throw calibration -------------------------------------
+    # Calibration data will be downloaded if it's not in the calibration folder
+    calibration_lt = hl2ss_3dcv.get_calibration_rm(host, hl2ss.StreamPort.RM_DEPTH_LONGTHROW, calibration_path)
 
-# command_buffer = hl2ss_rus.command_buffer()
-# command_buffer.remove(key) # Destroy cube
-# ipc.push(command_buffer)
-# results = ipc.pull(command_buffer)
+    uv2xy = hl2ss_3dcv.compute_uv2xy(calibration_lt.intrinsics, hl2ss.Parameters_RM_DEPTH_LONGTHROW.WIDTH, hl2ss.Parameters_RM_DEPTH_LONGTHROW.HEIGHT)
+    xy1, scale = hl2ss_3dcv.rm_depth_compute_rays(uv2xy, calibration_lt.scale)
+    
+    # Create Open3D integrator and visualizer ---------------------------------
+    volume = o3d.pipelines.integration.ScalableTSDFVolume(voxel_length=voxel_length, sdf_trunc=sdf_trunc, color_type=o3d.pipelines.integration.TSDFVolumeColorType.RGB8)
+    intrinsics_depth = o3d.camera.PinholeCameraIntrinsic(hl2ss.Parameters_RM_DEPTH_LONGTHROW.WIDTH, hl2ss.Parameters_RM_DEPTH_LONGTHROW.HEIGHT, calibration_lt.intrinsics[0, 0], calibration_lt.intrinsics[1, 1], calibration_lt.intrinsics[2, 0], calibration_lt.intrinsics[2, 1])
+    
+    # vis = o3d.visualization.Visualizer()
+    # vis.create_window()
+    first_pcd = True
 
-ipc.close()
+    # Start RM Depth Long Throw stream ----------------------------------------
+    producer = hl2ss_mp.producer()
+    producer.configure(hl2ss.StreamPort.RM_DEPTH_LONGTHROW, hl2ss_lnm.rx_rm_depth_longthrow(host, hl2ss.StreamPort.RM_DEPTH_LONGTHROW))
+    producer.initialize(hl2ss.StreamPort.RM_DEPTH_LONGTHROW, hl2ss.Parameters_RM_DEPTH_LONGTHROW.FPS * buffer_length)
+    producer.start(hl2ss.StreamPort.RM_DEPTH_LONGTHROW)
 
-listener.join()
+    consumer = hl2ss_mp.consumer()
+    manager = mp.Manager()    
+    sink_depth = consumer.create_sink(producer, hl2ss.StreamPort.RM_DEPTH_LONGTHROW, manager, ...)
+
+    sink_depth.get_attach_response()
+
+    print("Waiting for point cloud...")
+    while (enable):
+
+        # Wait for RM Depth Long Throw frame ----------------------------------
+        sink_depth.acquire()
+
+        # Get RM Depth Long Throw frame ---------------------------------------
+        _, data_depth = sink_depth.get_most_recent_frame()
+        if ((data_depth is None) or (not hl2ss.is_valid_pose(data_depth.pose))):
+            continue
+
+        # Preprocess frames ---------------------------------------------------
+        depth = hl2ss_3dcv.rm_depth_undistort(data_depth.payload.depth, calibration_lt.undistort_map)
+        depth = hl2ss_3dcv.rm_depth_normalize(depth, scale)
+        color = cv2.remap(data_depth.payload.ab, calibration_lt.undistort_map[:, :, 0], calibration_lt.undistort_map[:, :, 1], cv2.INTER_LINEAR)
+        
+        # Convert to Open3D RGBD image ----------------------------------------
+        color = hl2ss_3dcv.rm_depth_to_uint8(color)
+        color = hl2ss_3dcv.rm_depth_to_rgb(color)
+        color_image = o3d.geometry.Image(color)
+        depth_image = o3d.geometry.Image(depth)
+        rgbd = o3d.geometry.RGBDImage.create_from_color_and_depth(color_image, depth_image, depth_scale=1, depth_trunc=max_depth, convert_rgb_to_intensity=False)
+        
+        # Compute world to RM Depth Long Throw camera transformation matrix ---
+        depth_world_to_camera = hl2ss_3dcv.world_to_reference(data_depth.pose) @ hl2ss_3dcv.rignode_to_camera(calibration_lt.extrinsics)
+
+        # Integrate RGBD and display point cloud ------------------------------
+        volume.integrate(rgbd, intrinsics_depth, depth_world_to_camera.transpose())
+        # pcd_tmp = volume.extract_point_cloud()
+
+        # if (first_pcd):
+        #     first_pcd = False
+        #     pcd = pcd_tmp
+        #     # vis.add_geometry(pcd)
+        # else:
+        #     pcd.points = pcd_tmp.points
+        #     pcd.colors = pcd_tmp.colors
+        #     # vis.update_geometry(pcd)
+
+        # # vis.poll_events()
+        # # vis.update_renderer()
+
+    # Stop RM Depth Long Throw stream -----------------------------------------
+    sink_depth.detach()
+    producer.stop(hl2ss.StreamPort.RM_DEPTH_LONGTHROW)
+
+    listener.join()
+    pcd = volume.extract_point_cloud()
+
+    # Crop point cloud --------------------------------------------------------
+    min_bound, max_bound = unity_to_open3d_bounds(bbox)
+
+    # cropping
+    bounding_box = o3d.geometry.AxisAlignedBoundingBox(min_bound, max_bound)
+    cropped_pcd = pcd.crop(bounding_box)
+
+    o3d.visualization.draw_geometries([cropped_pcd], "Cropped Point Cloud")
+
+    o3d.io.write_point_cloud("cropped_hl2.pcd", cropped_pcd)
+
+    print("Saving pointcloud to file: hl2.pcd")
+    o3d.io.write_point_cloud("hl2.pcd", pcd)
+

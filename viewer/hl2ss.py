@@ -2309,10 +2309,8 @@ class ipc_umq(_context_manager):
     
     def pull_msg(self):
         meta_data =  np.frombuffer(self._client.download(_SIZEOF.DWORD * 2, ChunkSize.SINGLE_TRANSFER), dtype=np.uint32)
-        print(meta_data[0])
-        print(meta_data[1])
         data = np.frombuffer(self._client.download(meta_data[1], ChunkSize.SINGLE_TRANSFER), dtype=np.float32)
-        print(data)
+        return data
 
 
     def close(self):
