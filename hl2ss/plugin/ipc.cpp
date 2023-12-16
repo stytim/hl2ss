@@ -117,7 +117,7 @@ static bool MQ_SO_Wait_Data()
 {
 	HANDLE events[2];
 
-	events[0] = g_semaphore_so;
+	events[0] = g_semaphore_so_data;
 	events[1] = g_event_error;
 
 	return WaitForMultipleObjects(sizeof(events) / sizeof(HANDLE), events, FALSE, INFINITE) == WAIT_OBJECT_0;
@@ -160,7 +160,7 @@ static DWORD WINAPI MQ_EntryPoint_SendData(void* param)
 	do
 	{
 		if (!MQ_SO_Wait_Data()) { break; }
-		/*
+		
 		{
 			CriticalSection cs(&g_lock_so_data);
 			msg = g_queue_so_data.front();
@@ -175,7 +175,7 @@ static DWORD WINAPI MQ_EntryPoint_SendData(void* param)
 		{
 			status = send(clientsocket, (char*)msg.data, msg.size, 0);
 			if (status != msg.size) { break; }
-		}*/
+		}
 	} while (WaitForSingleObject(g_event_error, 0) == WAIT_TIMEOUT);
 
 	SetEvent(g_event_error);
@@ -186,7 +186,7 @@ static DWORD WINAPI MQ_EntryPoint_SendData(void* param)
 
 // OK
 UNITY_EXPORT
-void MQ_SO_Push_Data(uint32_t& command, uint8_t* data, uint32_t& size)
+void MQ_SO_Push_Data(uint32_t command, uint8_t* data, uint32_t size)
 {
 	MQ_MSG msg;
 	msg.command = command;
@@ -194,7 +194,6 @@ void MQ_SO_Push_Data(uint32_t& command, uint8_t* data, uint32_t& size)
 	if (size <= 0) { return; }
 	msg.data = malloc(size);
 	memcpy(msg.data, data, size);
-	free(data);
 	{
 		CriticalSection cs(&g_lock_so_data);
 		g_queue_so_data.push(msg);
