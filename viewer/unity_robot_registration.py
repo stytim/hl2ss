@@ -150,7 +150,7 @@ if __name__ == '__main__':
 
     # o3d.visualization.draw_geometries([cropped_pcd], "Cropped Point Cloud")
 
-    # o3d.io.write_point_cloud("cropped_hl2.pcd", cropped_pcd)
+    o3d.io.write_point_cloud("cropped_hl2.pcd", cropped_pcd)
     print("Prepare for registartion")
     ipc.close()
     
