@@ -1,8 +1,3 @@
-#------------------------------------------------------------------------------
-# This script adds a cube to the Unity scene and animates it.
-# Press esc to stop.
-#------------------------------------------------------------------------------
-
 from pynput import keyboard
 
 import multiprocessing as mp
@@ -14,11 +9,16 @@ import hl2ss_3dcv
 import hl2ss_mp
 import open3d as o3d
 import cv2
+import numpy as np
+
+import icp
+import copy
+from scipy.spatial.transform import Rotation as R
 
 # Settings --------------------------------------------------------------------
 
 # HoloLens address
-host = '192.168.0.27'
+host = '192.168.1.185'
 
 # Calibration path (must exist but can be empty)
 calibration_path = '../calibration'
@@ -36,7 +36,7 @@ def unity_to_open3d_bounds(unity_data):
     position = unity_data[:3]
     scale = unity_data[3:]
     
-    # Convert Unity position to Open3D (adjusting Z-axis sign)
+    # Convert Unity position to OpenGL (adjusting Z-axis sign)
     position[2] = -position[2]
     tmp = scale[0]
     scale[0] = scale[2]
@@ -52,13 +52,13 @@ def unity_to_open3d_bounds(unity_data):
 
 if __name__ == '__main__':
     enable = True
-    def on_press(key):
-        global enable
-        enable = key != keyboard.Key.esc
-        return enable
+    # def on_press(key):
+    #     global enable
+    #     enable = key != keyboard.Key.esc
+    #     return enable
 
-    listener = keyboard.Listener(on_press=on_press)
-    listener.start()
+    # listener = keyboard.Listener(on_press=on_press)
+    # listener.start()
 
     ipc = hl2ss_lnm.ipc_umq(host, hl2ss.IPCPort.UNITY_MESSAGE_QUEUE)
     ipc.open()
@@ -103,6 +103,7 @@ if __name__ == '__main__':
 
     sink_depth.get_attach_response()
 
+    frame_id = 0
     print("Waiting for point cloud...")
     while (enable):
 
@@ -131,14 +132,20 @@ if __name__ == '__main__':
 
         # Integrate RGBD  ------------------------------
         volume.integrate(rgbd, intrinsics_depth, depth_world_to_camera.transpose())
-        print("Acquired point cloud")
+
+        frame_id += 1
+        print("Acquired point cloud" )
+        if (frame_id > 30):
+            enable = False
+            print("30 frames of point cloud acquired")
+            break
 
 
     # Stop RM Depth Long Throw stream -----------------------------------------
     sink_depth.detach()
     producer.stop(hl2ss.StreamPort.RM_DEPTH_LONGTHROW)
 
-    listener.join()
+    # listener.join()
     pcd = volume.extract_point_cloud()
 
     # Crop point cloud --------------------------------------------------------
@@ -146,12 +153,42 @@ if __name__ == '__main__':
 
     # cropping
     bounding_box = o3d.geometry.AxisAlignedBoundingBox(min_bound, max_bound)
-    cropped_pcd = pcd.crop(bounding_box)
+    target = pcd.crop(bounding_box)
 
-    # o3d.visualization.draw_geometries([cropped_pcd], "Cropped Point Cloud")
-
-    o3d.io.write_point_cloud("cropped_hl2.pcd", cropped_pcd)
     print("Prepare for registartion")
+    # Start point cloud registration -------------------------------------------
+
+    source = icp.load_point_cloud("unityz.pcd")
+    transformation_matrix = icp.point_cloud_registration(source, target)
+    # OpenGL <-> Unity
+    flip_z_matrix = np.array([[1, 0, 0, 0],
+                          [0, 1, 0, 0],
+                          [0, 0, -1, 0],
+                          [0, 0, 0, 1]])
+    transformed_matrix = flip_z_matrix @ transformation_matrix @ flip_z_matrix
+    # End point cloud registration -------------------------------------------
+
+    # Extract translation
+    position = transformed_matrix[0:3, 3]
+
+    # Extract rotation
+    rotation_matrix = transformed_matrix[0:3, 0:3]
+    rotation = R.from_matrix(rotation_matrix)
+    rotation = rotation.as_quat()  
+
+    display_list = hl2ss_rus.command_buffer()
+    display_list.begin_display_list() # Begin command sequence
+    display_list.set_registration(111, position, rotation, [0.1, 0.2, 0.3])
+    display_list.end_display_list() # End command sequence
+    ipc.push(display_list) # Send commands to server
+    results = ipc.pull(display_list) # Get results from server
+    print(results)
+
     ipc.close()
+
+    # Visualization (optional)
+    source_temp = copy.deepcopy(source)
+    source_temp.transform(transformation_matrix)
+    o3d.visualization.draw_geometries([source_temp, target])
     
 
