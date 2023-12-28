@@ -31,6 +31,17 @@ voxel_length = 1/100
 sdf_trunc = 0.04
 max_depth = 3.0
 
+def on_press(key):
+    global running
+    global enable
+    global listening
+    if key == keyboard.Key.esc:
+        # Stop the loop
+        running = False
+        enable = False
+        listening = False
+        return False
+
 def unity_to_open3d_bounds(unity_data):
     # Extracting position and scale from the Unity data
     position = unity_data[:3]
@@ -51,144 +62,152 @@ def unity_to_open3d_bounds(unity_data):
 
 
 if __name__ == '__main__':
-    enable = True
+
+    running = True
     # def on_press(key):
     #     global enable
     #     enable = key != keyboard.Key.esc
     #     return enable
 
-    # listener = keyboard.Listener(on_press=on_press)
-    # listener.start()
+    listener = keyboard.Listener(on_press=on_press)
+    listener.start()
 
-    ipc = hl2ss_lnm.ipc_umq(host, hl2ss.IPCPort.UNITY_MESSAGE_QUEUE)
-    ipc.open()
+    while running:
+        enable = True
+        ipc = hl2ss_lnm.ipc_umq(host, hl2ss.IPCPort.UNITY_MESSAGE_QUEUE)
+        ipc.open()
 
-    key = 0
-    bbox = 0
+        key = 0
+        bbox = 0
 
-    print("Waiting for data...")
-    listening = True
-    # Loop until receive data
-    while(listening):
-        data = ipc.pull_msg()
-        if (data is not None):
-            bbox = data
-            print(bbox)
-            listening = False
-            break
+        print("Waiting for data...")
+        listening = True
+        # Loop until receive data
+        while(listening):
+            data = ipc.pull_msg()
+            if (data is not None):
+                bbox = data
+                print(bbox)
+                listening = False
+                break
 
 
-    # Get RM Depth Long Throw calibration -------------------------------------
-    # Calibration data will be downloaded if it's not in the calibration folder
-    calibration_lt = hl2ss_3dcv.get_calibration_rm(host, hl2ss.StreamPort.RM_DEPTH_LONGTHROW, calibration_path)
+        # Get RM Depth Long Throw calibration -------------------------------------
+        # Calibration data will be downloaded if it's not in the calibration folder
+        calibration_lt = hl2ss_3dcv.get_calibration_rm(host, hl2ss.StreamPort.RM_DEPTH_LONGTHROW, calibration_path)
 
-    uv2xy = hl2ss_3dcv.compute_uv2xy(calibration_lt.intrinsics, hl2ss.Parameters_RM_DEPTH_LONGTHROW.WIDTH, hl2ss.Parameters_RM_DEPTH_LONGTHROW.HEIGHT)
-    xy1, scale = hl2ss_3dcv.rm_depth_compute_rays(uv2xy, calibration_lt.scale)
-    
-    # Create Open3D integrator and visualizer ---------------------------------
-    volume = o3d.pipelines.integration.ScalableTSDFVolume(voxel_length=voxel_length, sdf_trunc=sdf_trunc, color_type=o3d.pipelines.integration.TSDFVolumeColorType.RGB8)
-    intrinsics_depth = o3d.camera.PinholeCameraIntrinsic(hl2ss.Parameters_RM_DEPTH_LONGTHROW.WIDTH, hl2ss.Parameters_RM_DEPTH_LONGTHROW.HEIGHT, calibration_lt.intrinsics[0, 0], calibration_lt.intrinsics[1, 1], calibration_lt.intrinsics[2, 0], calibration_lt.intrinsics[2, 1])
-    
-    first_pcd = True
+        uv2xy = hl2ss_3dcv.compute_uv2xy(calibration_lt.intrinsics, hl2ss.Parameters_RM_DEPTH_LONGTHROW.WIDTH, hl2ss.Parameters_RM_DEPTH_LONGTHROW.HEIGHT)
+        xy1, scale = hl2ss_3dcv.rm_depth_compute_rays(uv2xy, calibration_lt.scale)
+        
+        # Create Open3D integrator and visualizer ---------------------------------
+        volume = o3d.pipelines.integration.ScalableTSDFVolume(voxel_length=voxel_length, sdf_trunc=sdf_trunc, color_type=o3d.pipelines.integration.TSDFVolumeColorType.RGB8)
+        intrinsics_depth = o3d.camera.PinholeCameraIntrinsic(hl2ss.Parameters_RM_DEPTH_LONGTHROW.WIDTH, hl2ss.Parameters_RM_DEPTH_LONGTHROW.HEIGHT, calibration_lt.intrinsics[0, 0], calibration_lt.intrinsics[1, 1], calibration_lt.intrinsics[2, 0], calibration_lt.intrinsics[2, 1])
+        
+        first_pcd = True
 
-    # Start RM Depth Long Throw stream ----------------------------------------
-    producer = hl2ss_mp.producer()
-    producer.configure(hl2ss.StreamPort.RM_DEPTH_LONGTHROW, hl2ss_lnm.rx_rm_depth_longthrow(host, hl2ss.StreamPort.RM_DEPTH_LONGTHROW))
-    producer.initialize(hl2ss.StreamPort.RM_DEPTH_LONGTHROW, hl2ss.Parameters_RM_DEPTH_LONGTHROW.FPS * buffer_length)
-    producer.start(hl2ss.StreamPort.RM_DEPTH_LONGTHROW)
+        # Start RM Depth Long Throw stream ----------------------------------------
+        producer = hl2ss_mp.producer()
+        producer.configure(hl2ss.StreamPort.RM_DEPTH_LONGTHROW, hl2ss_lnm.rx_rm_depth_longthrow(host, hl2ss.StreamPort.RM_DEPTH_LONGTHROW))
+        producer.initialize(hl2ss.StreamPort.RM_DEPTH_LONGTHROW, hl2ss.Parameters_RM_DEPTH_LONGTHROW.FPS * buffer_length)
+        producer.start(hl2ss.StreamPort.RM_DEPTH_LONGTHROW)
 
-    consumer = hl2ss_mp.consumer()
-    manager = mp.Manager()    
-    sink_depth = consumer.create_sink(producer, hl2ss.StreamPort.RM_DEPTH_LONGTHROW, manager, ...)
+        consumer = hl2ss_mp.consumer()
+        manager = mp.Manager()    
+        sink_depth = consumer.create_sink(producer, hl2ss.StreamPort.RM_DEPTH_LONGTHROW, manager, ...)
 
-    sink_depth.get_attach_response()
+        sink_depth.get_attach_response()
 
-    frame_id = 0
-    print("Waiting for point cloud...")
-    while (enable):
+        frame_id = 0
+        calibrate = False
+        print("Waiting for point cloud...")
+        while (enable):
 
-        # Wait for RM Depth Long Throw frame ----------------------------------
-        sink_depth.acquire()
+            # Wait for RM Depth Long Throw frame ----------------------------------
+            sink_depth.acquire()
 
-        # Get RM Depth Long Throw frame ---------------------------------------
-        _, data_depth = sink_depth.get_most_recent_frame()
-        if ((data_depth is None) or (not hl2ss.is_valid_pose(data_depth.pose))):
+            # Get RM Depth Long Throw frame ---------------------------------------
+            _, data_depth = sink_depth.get_most_recent_frame()
+            if ((data_depth is None) or (not hl2ss.is_valid_pose(data_depth.pose))):
+                continue
+
+            # Preprocess frames ---------------------------------------------------
+            depth = hl2ss_3dcv.rm_depth_undistort(data_depth.payload.depth, calibration_lt.undistort_map)
+            depth = hl2ss_3dcv.rm_depth_normalize(depth, scale)
+            color = cv2.remap(data_depth.payload.ab, calibration_lt.undistort_map[:, :, 0], calibration_lt.undistort_map[:, :, 1], cv2.INTER_LINEAR)
+            
+            # Convert to Open3D RGBD image ----------------------------------------
+            color = hl2ss_3dcv.rm_depth_to_uint8(color)
+            color = hl2ss_3dcv.rm_depth_to_rgb(color)
+            color_image = o3d.geometry.Image(color)
+            depth_image = o3d.geometry.Image(depth)
+            rgbd = o3d.geometry.RGBDImage.create_from_color_and_depth(color_image, depth_image, depth_scale=1, depth_trunc=max_depth, convert_rgb_to_intensity=False)
+            
+            # Compute world to RM Depth Long Throw camera transformation matrix ---
+            depth_world_to_camera = hl2ss_3dcv.world_to_reference(data_depth.pose) @ hl2ss_3dcv.rignode_to_camera(calibration_lt.extrinsics)
+
+            # Integrate RGBD  ------------------------------
+            volume.integrate(rgbd, intrinsics_depth, depth_world_to_camera.transpose())
+
+            frame_id += 1
+            print("Acquired point cloud" )
+            if (frame_id > 30):
+                enable = False
+                print("30 frames of point cloud acquired")
+                calibrate = True
+                break
+
+
+        # Stop RM Depth Long Throw stream -----------------------------------------
+        sink_depth.detach()
+        producer.stop(hl2ss.StreamPort.RM_DEPTH_LONGTHROW)
+
+        if (not calibrate):
             continue
 
-        # Preprocess frames ---------------------------------------------------
-        depth = hl2ss_3dcv.rm_depth_undistort(data_depth.payload.depth, calibration_lt.undistort_map)
-        depth = hl2ss_3dcv.rm_depth_normalize(depth, scale)
-        color = cv2.remap(data_depth.payload.ab, calibration_lt.undistort_map[:, :, 0], calibration_lt.undistort_map[:, :, 1], cv2.INTER_LINEAR)
-        
-        # Convert to Open3D RGBD image ----------------------------------------
-        color = hl2ss_3dcv.rm_depth_to_uint8(color)
-        color = hl2ss_3dcv.rm_depth_to_rgb(color)
-        color_image = o3d.geometry.Image(color)
-        depth_image = o3d.geometry.Image(depth)
-        rgbd = o3d.geometry.RGBDImage.create_from_color_and_depth(color_image, depth_image, depth_scale=1, depth_trunc=max_depth, convert_rgb_to_intensity=False)
-        
-        # Compute world to RM Depth Long Throw camera transformation matrix ---
-        depth_world_to_camera = hl2ss_3dcv.world_to_reference(data_depth.pose) @ hl2ss_3dcv.rignode_to_camera(calibration_lt.extrinsics)
+        pcd = volume.extract_point_cloud()
+        min_bound, max_bound = unity_to_open3d_bounds(bbox)
 
-        # Integrate RGBD  ------------------------------
-        volume.integrate(rgbd, intrinsics_depth, depth_world_to_camera.transpose())
+        # cropping
+        bounding_box = o3d.geometry.AxisAlignedBoundingBox(min_bound, max_bound)
+        target = pcd.crop(bounding_box)
+        o3d.io.write_point_cloud("hl2.pcd", target)
 
-        frame_id += 1
-        print("Acquired point cloud" )
-        if (frame_id > 30):
-            enable = False
-            print("30 frames of point cloud acquired")
-            break
+        print("Prepare for registartion")
+        # Start point cloud registration -------------------------------------------
 
+        source = icp.load_point_cloud("unityz.pcd")
+        transformation_matrix = icp.point_cloud_registration(source, target)
+        # OpenGL <-> Unity
+        flip_z_matrix = np.array([[1, 0, 0, 0],
+                            [0, 1, 0, 0],
+                            [0, 0, -1, 0],
+                            [0, 0, 0, 1]])
+        transformed_matrix = flip_z_matrix @ transformation_matrix @ flip_z_matrix
+        # End point cloud registration -------------------------------------------
 
-    # Stop RM Depth Long Throw stream -----------------------------------------
-    sink_depth.detach()
-    producer.stop(hl2ss.StreamPort.RM_DEPTH_LONGTHROW)
+        # Extract translation
+        position = transformed_matrix[0:3, 3]
 
-    # listener.join()
-    pcd = volume.extract_point_cloud()
+        # Extract rotation
+        rotation_matrix = transformed_matrix[0:3, 0:3]
+        rotation = R.from_matrix(rotation_matrix)
+        rotation = rotation.as_quat()  
 
-    # Crop point cloud --------------------------------------------------------
-    min_bound, max_bound = unity_to_open3d_bounds(bbox)
+        display_list = hl2ss_rus.command_buffer()
+        display_list.begin_display_list() # Begin command sequence
+        display_list.set_registration(111, position, rotation, [0.1, 0.2, 0.3])
+        display_list.end_display_list() # End command sequence
+        ipc.push(display_list) # Send commands to server
+        results = ipc.pull(display_list) # Get results from server
+        print(results)
 
-    # cropping
-    bounding_box = o3d.geometry.AxisAlignedBoundingBox(min_bound, max_bound)
-    target = pcd.crop(bounding_box)
+        ipc.close()
 
-    print("Prepare for registartion")
-    # Start point cloud registration -------------------------------------------
+        # Visualization (optional)
+        source_temp = copy.deepcopy(source)
+        source_temp.transform(transformation_matrix)
+        o3d.visualization.draw_geometries([source_temp, target])
 
-    source = icp.load_point_cloud("unityz.pcd")
-    transformation_matrix = icp.point_cloud_registration(source, target)
-    # OpenGL <-> Unity
-    flip_z_matrix = np.array([[1, 0, 0, 0],
-                          [0, 1, 0, 0],
-                          [0, 0, -1, 0],
-                          [0, 0, 0, 1]])
-    transformed_matrix = flip_z_matrix @ transformation_matrix @ flip_z_matrix
-    # End point cloud registration -------------------------------------------
-
-    # Extract translation
-    position = transformed_matrix[0:3, 3]
-
-    # Extract rotation
-    rotation_matrix = transformed_matrix[0:3, 0:3]
-    rotation = R.from_matrix(rotation_matrix)
-    rotation = rotation.as_quat()  
-
-    display_list = hl2ss_rus.command_buffer()
-    display_list.begin_display_list() # Begin command sequence
-    display_list.set_registration(111, position, rotation, [0.1, 0.2, 0.3])
-    display_list.end_display_list() # End command sequence
-    ipc.push(display_list) # Send commands to server
-    results = ipc.pull(display_list) # Get results from server
-    print(results)
-
-    ipc.close()
-
-    # Visualization (optional)
-    source_temp = copy.deepcopy(source)
-    source_temp.transform(transformation_matrix)
-    o3d.visualization.draw_geometries([source_temp, target])
+    listener.join()
     
 
