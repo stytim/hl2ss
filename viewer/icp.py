@@ -56,8 +56,8 @@ def point_cloud_registration(source, target):
 
 if __name__ == '__main__':
     # Load point clouds
-    source = load_point_cloud("unity_robot.pcd")
-    target = load_point_cloud("cropped_hl2.pcd")
+    source = load_point_cloud("hl2.pcd")
+    target = load_point_cloud("ur5.pcd")
 
     transformation_matrix = point_cloud_registration(source, target)
 
