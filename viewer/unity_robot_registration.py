@@ -7,6 +7,7 @@ import hl2ss_lnm
 import hl2ss_rus
 import hl2ss_3dcv
 import hl2ss_mp
+import DracoPy
 import open3d as o3d
 import cv2
 import numpy as np
@@ -40,6 +41,7 @@ def on_press(key):
         running = False
         enable = False
         listening = False
+        print("Esc pressed")
         return False
 
 def unity_to_open3d_bounds(unity_data):
@@ -64,10 +66,6 @@ def unity_to_open3d_bounds(unity_data):
 if __name__ == '__main__':
 
     running = True
-    # def on_press(key):
-    #     global enable
-    #     enable = key != keyboard.Key.esc
-    #     return enable
 
     listener = keyboard.Listener(on_press=on_press)
     listener.start()
@@ -79,18 +77,28 @@ if __name__ == '__main__':
 
         key = 0
         bbox = 0
+        source = o3d.geometry.PointCloud()
 
         print("Waiting for data...")
+        bbox_received = False
+        point_cloud_received = False
         listening = True
-        # Loop until receive data
-        while(listening):
-            data = ipc.pull_msg()
-            if (data is not None):
-                bbox = data
-                print(bbox)
-                listening = False
-                break
 
+        # Loop until receive bounding box and point cloud
+        while (listening):
+            command, data = ipc.pull_msg()
+            if (data is not None):
+                if (command == 0):
+                    bbox = data
+                    bbox_received = True
+                    print("Received bounding box")
+                    print(bbox)
+                elif (command == 1):
+                    mesh = DracoPy.decode(data)
+                    source.points = o3d.utility.Vector3dVector(mesh.points)
+                    point_cloud_received = True
+                    print("Received point cloud")
+            listening = not (bbox_received and point_cloud_received)
 
         # Get RM Depth Long Throw calibration -------------------------------------
         # Calibration data will be downloaded if it's not in the calibration folder
@@ -175,7 +183,7 @@ if __name__ == '__main__':
         print("Prepare for registartion")
         # Start point cloud registration -------------------------------------------
 
-        source = icp.load_point_cloud("unityz.pcd")
+        # source = icp.load_point_cloud("unityz.pcd")
         transformation_matrix = icp.point_cloud_registration(source, target)
         # OpenGL <-> Unity
         flip_z_matrix = np.array([[1, 0, 0, 0],
