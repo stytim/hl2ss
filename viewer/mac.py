@@ -4,8 +4,8 @@ import time
 from igraph import *
 import os
 import open3d as o3d
-from mise.pointcloud import estimate_normal
 import copy
+import DracoPy
 
 os.environ['CUDA_VISIBLE_DEVICES'] = "1"
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -119,28 +119,28 @@ def transformation_error(pred_trans, gt_trans):
     return RE, TE
 
 
-def visualization(src_pcd, tgt_pcd, pred_trans):
-    def change_background_to_black(vis):
-        opt = vis.get_render_option()
-        opt.background_color = np.asarray([0, 0, 0])
-        return False
+# def visualization(src_pcd, tgt_pcd, pred_trans):
+#     def change_background_to_black(vis):
+#         opt = vis.get_render_option()
+#         opt.background_color = np.asarray([0, 0, 0])
+#         return False
 
-    key_to_callback = {ord("K"): change_background_to_black}
-    if not src_pcd.has_normals():
-        estimate_normal(src_pcd)
-        estimate_normal(tgt_pcd)
-    src_pcd.paint_uniform_color([1, 0.706, 0])
-    src_box = src_pcd.get_oriented_bounding_box()
-    src_box.color = (0 ,1, 0)
-    tgt_pcd.paint_uniform_color([0, 0.651, 0.929])
-    tgt_box = tgt_pcd.get_oriented_bounding_box()
-    tgt_box.color = (0, 1, 0)
+#     key_to_callback = {ord("K"): change_background_to_black}
+#     if not src_pcd.has_normals():
+#         estimate_normal(src_pcd)
+#         estimate_normal(tgt_pcd)
+#     src_pcd.paint_uniform_color([1, 0.706, 0])
+#     src_box = src_pcd.get_oriented_bounding_box()
+#     src_box.color = (0 ,1, 0)
+#     tgt_pcd.paint_uniform_color([0, 0.651, 0.929])
+#     tgt_box = tgt_pcd.get_oriented_bounding_box()
+#     tgt_box.color = (0, 1, 0)
 
-    o3d.visualization.draw_geometries_with_key_callbacks([src_pcd, tgt_pcd, src_box, tgt_box], key_to_callback)
-    src_pcd.transform(pred_trans)
-    src_box = src_pcd.get_oriented_bounding_box()
-    src_box.color = (1, 0, 0)
-    o3d.visualization.draw_geometries_with_key_callbacks([src_pcd, tgt_pcd, src_box, tgt_box], key_to_callback)
+#     o3d.visualization.draw_geometries_with_key_callbacks([src_pcd, tgt_pcd, src_box, tgt_box], key_to_callback)
+#     src_pcd.transform(pred_trans)
+#     src_box = src_pcd.get_oriented_bounding_box()
+#     src_box.color = (1, 0, 0)
+#     o3d.visualization.draw_geometries_with_key_callbacks([src_pcd, tgt_pcd, src_box, tgt_box], key_to_callback)
 
 def extract_fpfh_features(pcd, downsample):
     keypts = pcd.voxel_down_sample(downsample)
@@ -161,10 +161,15 @@ def refine_registration(source, target, transformation, voxel_size):
     return result
 
 def test(folder):
-    src_pcd_path = folder + '/ur5.pcd'
-    tgt_pcd_path = folder + '/hl2.pcd'
-    src_pcd = o3d.io.read_point_cloud(src_pcd_path)
-    tgt_pcd = o3d.io.read_point_cloud(tgt_pcd_path)
+    src_pcd_path = 'ur5.pcd'
+    tgt_pcd_path = 'hl2.pcd'
+
+    with open('ur5_t.drc', 'rb') as draco_file:
+        mesh = DracoPy.decode(draco_file.read())
+    tgt_pcd = o3d.geometry.PointCloud()
+    tgt_pcd.points = o3d.utility.Vector3dVector(mesh.points)
+    # src_pcd = o3d.io.read_point_cloud(src_pcd_path)
+    src_pcd = o3d.io.read_point_cloud(tgt_pcd_path)
     # extract features (FPFH for example)
 
     src_kpts, src_desc = extract_fpfh_features(src_pcd, 0.05)

@@ -11,7 +11,7 @@ import open3d as o3d
 
 
 # Read drc file
-with open('ur5.drc', 'rb') as draco_file:
+with open('ur5_t.drc', 'rb') as draco_file:
     mesh = DracoPy.decode(draco_file.read())
 pcd = o3d.geometry.PointCloud()
 pcd.points = o3d.utility.Vector3dVector(mesh.points)

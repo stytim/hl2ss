@@ -94,12 +94,21 @@ if __name__ == '__main__':
                     print("Received bounding box")
                     print(bbox)
                 elif (command == 1):
-                    mesh = DracoPy.decode(data)
+                    mesh = DracoPy.decode(bytes(data))
+                    with open('ur5_t.drc', 'wb') as test_file:
+                        test_file.write(bytes(data))
                     source.points = o3d.utility.Vector3dVector(mesh.points)
                     point_cloud_received = True
                     print("Received point cloud")
             listening = not (bbox_received and point_cloud_received)
 
+        # o3d.visualization.draw_geometries([source])
+        # # Read drc file
+        # with open('ur5.drc', 'rb') as draco_file:
+        #     mesh = DracoPy.decode(draco_file.read())
+        # source.points = o3d.utility.Vector3dVector(mesh.points)
+        # o3d.visualization.draw_geometries([source])
+            
         # Get RM Depth Long Throw calibration -------------------------------------
         # Calibration data will be downloaded if it's not in the calibration folder
         calibration_lt = hl2ss_3dcv.get_calibration_rm(host, hl2ss.StreamPort.RM_DEPTH_LONGTHROW, calibration_path)
