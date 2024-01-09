@@ -6,6 +6,10 @@ import os
 import open3d as o3d
 import copy
 import DracoPy
+import hl2ss
+import hl2ss_lnm
+import hl2ss_rus
+from scipy.spatial.transform import Rotation as R
 
 os.environ['CUDA_VISIBLE_DEVICES'] = "1"
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -118,30 +122,6 @@ def transformation_error(pred_trans, gt_trans):
     TE = torch.norm(pred_t - gt_t) * 100
     return RE, TE
 
-
-# def visualization(src_pcd, tgt_pcd, pred_trans):
-#     def change_background_to_black(vis):
-#         opt = vis.get_render_option()
-#         opt.background_color = np.asarray([0, 0, 0])
-#         return False
-
-#     key_to_callback = {ord("K"): change_background_to_black}
-#     if not src_pcd.has_normals():
-#         estimate_normal(src_pcd)
-#         estimate_normal(tgt_pcd)
-#     src_pcd.paint_uniform_color([1, 0.706, 0])
-#     src_box = src_pcd.get_oriented_bounding_box()
-#     src_box.color = (0 ,1, 0)
-#     tgt_pcd.paint_uniform_color([0, 0.651, 0.929])
-#     tgt_box = tgt_pcd.get_oriented_bounding_box()
-#     tgt_box.color = (0, 1, 0)
-
-#     o3d.visualization.draw_geometries_with_key_callbacks([src_pcd, tgt_pcd, src_box, tgt_box], key_to_callback)
-#     src_pcd.transform(pred_trans)
-#     src_box = src_pcd.get_oriented_bounding_box()
-#     src_box.color = (1, 0, 0)
-#     o3d.visualization.draw_geometries_with_key_callbacks([src_pcd, tgt_pcd, src_box, tgt_box], key_to_callback)
-
 def extract_fpfh_features(pcd, downsample):
     keypts = pcd.voxel_down_sample(downsample)
     keypts.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=downsample * 2, max_nn=30))
@@ -160,20 +140,10 @@ def refine_registration(source, target, transformation, voxel_size):
         o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=90000))
     return result
 
-def test(folder):
-    src_pcd_path = 'ur5.pcd'
-    tgt_pcd_path = 'hl2.pcd'
-
-    with open('ur5_t.drc', 'rb') as draco_file:
-        mesh = DracoPy.decode(draco_file.read())
-    tgt_pcd = o3d.geometry.PointCloud()
-    tgt_pcd.points = o3d.utility.Vector3dVector(mesh.points)
-    # src_pcd = o3d.io.read_point_cloud(src_pcd_path)
-    src_pcd = o3d.io.read_point_cloud(tgt_pcd_path)
+def point_cloud_registration(src_pcd, tgt_pcd):
     # extract features (FPFH for example)
-
-    src_kpts, src_desc = extract_fpfh_features(src_pcd, 0.05)
-    tgt_kpts, tgt_desc = extract_fpfh_features(tgt_pcd, 0.05)
+    src_kpts, src_desc = extract_fpfh_features(src_pcd, 0.02)
+    tgt_kpts, tgt_desc = extract_fpfh_features(tgt_pcd, 0.02)
 
     distance = np.sqrt(2 - 2 * (src_desc @ tgt_desc.T) + 1e-6)
     source_idx = np.argmin(distance, axis=1)  # for each row save the index of minimun
@@ -281,15 +251,25 @@ def test(folder):
     final_trans = final_trans1[0]
 
     final_trans = final_trans.cpu().numpy()
-    print(final_trans)
-    result_icp = refine_registration(src_pcd, tgt_pcd, final_trans, 0.05)
+    result_icp = refine_registration(src_pcd, tgt_pcd, final_trans, 0.03)
     print("Refinement result:", result_icp)
-    # Visualization (optional)
-    source_temp = copy.deepcopy(src_pcd)
-    source_temp.transform(result_icp.transformation)
-    o3d.visualization.draw_geometries([source_temp, tgt_pcd])
-    # visualization(src_pcd, tgt_pcd, final_trans)
+    print("Matrix:", result_icp.transformation)
+    return result_icp.transformation
 
 
 if __name__ == '__main__':
-    test('test')
+    src_pcd_path = 'hl2.pcd'
+    tgt_pcd_path = 'ur5.pcd'
+
+    with open('ur5_t.drc', 'rb') as draco_file:
+        mesh = DracoPy.decode(draco_file.read())
+    tgt_pcd = o3d.geometry.PointCloud()
+    # invert z axis
+    tgt_pcd.points = o3d.utility.Vector3dVector(mesh.points * np.array([1, 1, -1]))
+    src_pcd = o3d.io.read_point_cloud(src_pcd_path)
+    transformation_matrix = point_cloud_registration(src_pcd, tgt_pcd)
+
+    # Visualization (optional)
+    source_temp = copy.deepcopy(src_pcd)
+    source_temp.transform(transformation_matrix)
+    o3d.visualization.draw_geometries([source_temp, tgt_pcd])

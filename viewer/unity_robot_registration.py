@@ -13,6 +13,7 @@ import cv2
 import numpy as np
 
 import icp
+import mac
 import copy
 from scipy.spatial.transform import Rotation as R
 
@@ -97,17 +98,10 @@ if __name__ == '__main__':
                     mesh = DracoPy.decode(bytes(data))
                     with open('ur5_t.drc', 'wb') as test_file:
                         test_file.write(bytes(data))
-                    source.points = o3d.utility.Vector3dVector(mesh.points)
+                    source.points = o3d.utility.Vector3dVector(mesh.points * np.array([1, 1, -1]))
                     point_cloud_received = True
                     print("Received point cloud")
             listening = not (bbox_received and point_cloud_received)
-
-        # o3d.visualization.draw_geometries([source])
-        # # Read drc file
-        # with open('ur5.drc', 'rb') as draco_file:
-        #     mesh = DracoPy.decode(draco_file.read())
-        # source.points = o3d.utility.Vector3dVector(mesh.points)
-        # o3d.visualization.draw_geometries([source])
             
         # Get RM Depth Long Throw calibration -------------------------------------
         # Calibration data will be downloaded if it's not in the calibration folder
@@ -192,8 +186,8 @@ if __name__ == '__main__':
         print("Prepare for registartion")
         # Start point cloud registration -------------------------------------------
 
-        # source = icp.load_point_cloud("unityz.pcd")
-        transformation_matrix = icp.point_cloud_registration(source, target)
+        # transformation_matrix = icp.point_cloud_registration(source, target)
+        transformation_matrix = mac.point_cloud_registration(source, target)
         # OpenGL <-> Unity
         flip_z_matrix = np.array([[1, 0, 0, 0],
                             [0, 1, 0, 0],
@@ -212,7 +206,7 @@ if __name__ == '__main__':
 
         display_list = hl2ss_rus.command_buffer()
         display_list.begin_display_list() # Begin command sequence
-        display_list.set_registration(111, position, rotation, [0.1, 0.2, 0.3])
+        display_list.set_registration(111, position, rotation, [1.0,1.0,1.0])
         display_list.end_display_list() # End command sequence
         ipc.push(display_list) # Send commands to server
         results = ipc.pull(display_list) # Get results from server
@@ -221,9 +215,9 @@ if __name__ == '__main__':
         ipc.close()
 
         # Visualization (optional)
-        source_temp = copy.deepcopy(source)
-        source_temp.transform(transformation_matrix)
-        o3d.visualization.draw_geometries([source_temp, target])
+        # source_temp = copy.deepcopy(source)
+        # source_temp.transform(transformation_matrix)
+        # o3d.visualization.draw_geometries([source_temp, target])
 
     listener.join()
     

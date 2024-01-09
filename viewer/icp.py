@@ -1,6 +1,7 @@
 import open3d as o3d
 import numpy as np
 import copy
+import DracoPy
 
 # Helper function to load point cloud
 def load_point_cloud(file_name):
@@ -57,7 +58,14 @@ def point_cloud_registration(source, target):
 if __name__ == '__main__':
     # Load point clouds
     source = load_point_cloud("hl2.pcd")
-    target = load_point_cloud("ur5.pcd")
+    # target = load_point_cloud("ur5.pcd")
+
+    with open('ur5_t.drc', 'rb') as draco_file:
+        mesh = DracoPy.decode(draco_file.read())
+    
+    target = o3d.geometry.PointCloud()
+    # invert z axis
+    target.points = o3d.utility.Vector3dVector(mesh.points * np.array([1, 1, -1]))
 
     transformation_matrix = point_cloud_registration(source, target)
 
