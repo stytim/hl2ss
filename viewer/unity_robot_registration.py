@@ -161,7 +161,7 @@ if __name__ == '__main__':
 
             frame_id += 1
             print("Acquired point cloud" )
-            if (frame_id > 30):
+            if (frame_id > 20):
                 enable = False
                 print("30 frames of point cloud acquired")
                 calibrate = True
