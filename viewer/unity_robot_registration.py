@@ -20,7 +20,7 @@ from scipy.spatial.transform import Rotation as R
 # Settings --------------------------------------------------------------------
 
 # HoloLens address
-host = '192.168.1.185'
+host = '192.168.1.181'
 
 # Calibration path (must exist but can be empty)
 calibration_path = '../calibration'
@@ -163,7 +163,7 @@ if __name__ == '__main__':
             print("Acquired point cloud" )
             if (frame_id > 20):
                 enable = False
-                print("30 frames of point cloud acquired")
+                print("20 frames of point cloud acquired")
                 calibrate = True
                 break
 
